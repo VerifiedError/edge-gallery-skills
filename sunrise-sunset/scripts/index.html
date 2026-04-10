@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sunrise &amp; Sunset</title>
+</head>
+<body>
+<script>
+function getGPS() {
+  const HARD = 5000;
+  const native = new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('no geolocation'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      (e) => reject(new Error('GPS ' + e.code + ': ' + e.message)),
+      { enableHighAccuracy: false, timeout: HARD, maximumAge: 300000 }
+    );
+  });
+  const to = new Promise((_, rej) => setTimeout(() => rej(new Error('GPS hard timeout')), HARD));
+  return Promise.race([native, to]);
+}
+
+async function getIPFallback() {
+  const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+  const j = await r.json();
+  return { lat: j.latitude, lon: j.longitude };
+}
+
+function fmtLocalTime(utcStr, tzOffset) {
+  // utcStr is ISO-8601 UTC, tzOffset is local offset in minutes
+  const d = new Date(utcStr);
+  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+function fmtDuration(seconds) {
+  const h = Math.floor(seconds / 3600);
+  const m = Math.round((seconds % 3600) / 60);
+  return h + 'h ' + m + 'm';
+}
+
+window['ai_edge_gallery_get_result'] = async (data) => {
+  try {
+    let origin;
+    try {
+      origin = await getGPS();
+    } catch (e) {
+      origin = await getIPFallback();
+    }
+
+    const today = new Date().toISOString().slice(0, 10);
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const url = 'https://api.sunrise-sunset.org/json?lat=' + origin.lat + '&lng=' + origin.lon
+      + '&date=' + today + '&formatted=0&tzid=' + encodeURIComponent(tz);
+
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('sunrise-sunset.org responded with ' + r.status);
+    const j = await r.json();
+    if (j.status !== 'OK') throw new Error('API error: ' + j.status);
+
+    const res = j.results;
+
+    function localFmt(isoStr) {
+      const d = new Date(isoStr);
+      return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: tz });
+    }
+
+    const lines = [
+      'Sunrise:    ' + localFmt(res.sunrise),
+      'Sunset:     ' + localFmt(res.sunset),
+      'Solar noon: ' + localFmt(res.solar_noon),
+      'Daylight:   ' + fmtDuration(res.day_length),
+    ];
+
+    if (res.civil_twilight_begin && res.civil_twilight_end) {
+      lines.push('Civil twilight: ' + localFmt(res.civil_twilight_begin) + ' – ' + localFmt(res.civil_twilight_end));
+    }
+
+    return JSON.stringify({ result: lines.join('\n') });
+  } catch (e) {
+    console.error(e);
+    return JSON.stringify({ error: 'Could not fetch sunrise/sunset: ' + e.message });
+  }
+};
+</script>
+</body>
+</html>

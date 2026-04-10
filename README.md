@@ -23,6 +23,10 @@ Custom skills for the [Google AI Edge Gallery](https://github.com/google-ai-edge
 | `nearby-places` | Coffee, ATMs, gas, food, etc. near you (OpenStreetMap, no API key) | `.../nearby-places/` |
 | `weather-here` | Current weather at your location (Open-Meteo, no API key) | `.../weather-here/` |
 | `qr-wifi` | Generate a QR code to auto-join a Wi-Fi network | `.../qr-wifi/` |
+| `unit-converter` | Convert between length, weight, temperature, volume, area, and speed | `.../unit-converter/` |
+| `sunrise-sunset` | Sunrise, sunset, solar noon, and daylight duration at your location | `.../sunrise-sunset/` |
+| `random-generator` | Coin flip, dice roll, random number, UUID, or secure password | `.../random-generator/` |
+| `countdown` | Days/hours/minutes until or since any date or event | `.../countdown/` |
 
 Full import URL = `https://<your-username>.github.io/edge-gallery-skills/<skill-name>/`
 

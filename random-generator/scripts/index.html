@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Random Generator</title>
+</head>
+<body>
+<script>
+function cryptoRandInt(min, max) {
+  // Returns a crypto-random integer in [min, max] (inclusive)
+  const range = max - min + 1;
+  const bytesNeeded = Math.ceil(Math.log2(range) / 8) || 1;
+  const maxVal = Math.pow(256, bytesNeeded);
+  const limit = maxVal - (maxVal % range);
+  let value;
+  do {
+    const buf = new Uint8Array(bytesNeeded);
+    crypto.getRandomValues(buf);
+    value = buf.reduce((acc, b, i) => acc + b * Math.pow(256, i), 0);
+  } while (value >= limit);
+  return min + (value % range);
+}
+
+function generateUUID() {
+  const buf = new Uint8Array(16);
+  crypto.getRandomValues(buf);
+  buf[6] = (buf[6] & 0x0f) | 0x40; // version 4
+  buf[8] = (buf[8] & 0x3f) | 0x80; // variant bits
+  const hex = Array.from(buf).map(b => b.toString(16).padStart(2, '0')).join('');
+  return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+}
+
+function generatePassword(length, symbols) {
+  const lower = 'abcdefghijklmnopqrstuvwxyz';
+  const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  const digits = '0123456789';
+  const syms = '!@#$%^&*()-_=+[]{}|;:,.<>?';
+  const charset = lower + upper + digits + (symbols ? syms : '');
+  const result = [];
+  for (let i = 0; i < length; i++) {
+    result.push(charset[cryptoRandInt(0, charset.length - 1)]);
+  }
+  return result.join('');
+}
+
+window['ai_edge_gallery_get_result'] = async (data) => {
+  try {
+    const params = JSON.parse(data || '{}');
+    const type = String(params.type || '').toLowerCase();
+
+    if (type === 'coin') {
+      const flip = cryptoRandInt(0, 1) === 0 ? 'Heads' : 'Tails';
+      return JSON.stringify({ result: '🪙 ' + flip });
+    }
+
+    if (type === 'dice') {
+      const count = Math.max(1, Math.min(100, parseInt(params.count, 10) || 1));
+      const sides = Math.max(2, Math.min(1000, parseInt(params.sides, 10) || 6));
+      const rolls = [];
+      let total = 0;
+      for (let i = 0; i < count; i++) {
+        const r = cryptoRandInt(1, sides);
+        rolls.push(r);
+        total += r;
+      }
+      const dieName = count + 'd' + sides;
+      const detail = count > 1 ? ' [' + rolls.join(', ') + '] = ' + total : '';
+      return JSON.stringify({ result: '🎲 ' + dieName + ': ' + (count > 1 ? total + detail : rolls[0]) });
+    }
+
+    if (type === 'number') {
+      const min = parseInt(params.min, 10);
+      const max = parseInt(params.max, 10);
+      const lo = isFinite(min) ? min : 1;
+      const hi = isFinite(max) ? max : 100;
+      if (lo > hi) throw new Error('"min" must be ≤ "max"');
+      const n = cryptoRandInt(lo, hi);
+      return JSON.stringify({ result: '🔢 Random number between ' + lo + ' and ' + hi + ': ' + n });
+    }
+
+    if (type === 'uuid') {
+      return JSON.stringify({ result: '🔑 ' + generateUUID() });
+    }
+
+    if (type === 'password') {
+      const length = Math.max(4, Math.min(128, parseInt(params.length, 10) || 16));
+      const symbols = params.symbols !== false && params.symbols !== 'false';
+      const pwd = generatePassword(length, symbols);
+      return JSON.stringify({ result: '🔐 ' + pwd });
+    }
+
+    throw new Error('Unknown type "' + type + '". Use coin, dice, number, uuid, or password.');
+  } catch (e) {
+    console.error(e);
+    return JSON.stringify({ error: 'Random generation failed: ' + e.message });
+  }
+};
+</script>
+</body>
+</html>

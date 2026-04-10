@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Unit Converter</title>
+</head>
+<body>
+<script>
+// Conversion tables: all values are the multiplier to convert TO the SI base unit.
+// Temperature is handled separately.
+const UNITS = {
+  // Length (base: m)
+  m: { cat: 'length', toBase: 1 },
+  km: { cat: 'length', toBase: 1000 },
+  cm: { cat: 'length', toBase: 0.01 },
+  mm: { cat: 'length', toBase: 0.001 },
+  ft: { cat: 'length', toBase: 0.3048 },
+  in: { cat: 'length', toBase: 0.0254 },
+  yd: { cat: 'length', toBase: 0.9144 },
+  mi: { cat: 'length', toBase: 1609.344 },
+  nmi: { cat: 'length', toBase: 1852 },
+
+  // Weight / Mass (base: kg)
+  kg: { cat: 'mass', toBase: 1 },
+  g: { cat: 'mass', toBase: 0.001 },
+  mg: { cat: 'mass', toBase: 1e-6 },
+  lb: { cat: 'mass', toBase: 0.45359237 },
+  oz: { cat: 'mass', toBase: 0.028349523125 },
+  st: { cat: 'mass', toBase: 6.35029318 },
+  t: { cat: 'mass', toBase: 1000 },
+
+  // Volume (base: l)
+  l: { cat: 'volume', toBase: 1 },
+  ml: { cat: 'volume', toBase: 0.001 },
+  cl: { cat: 'volume', toBase: 0.01 },
+  m3: { cat: 'volume', toBase: 1000 },
+  gal: { cat: 'volume', toBase: 3.785411784 },
+  qt: { cat: 'volume', toBase: 0.946352946 },
+  pt: { cat: 'volume', toBase: 0.473176473 },
+  cup: { cat: 'volume', toBase: 0.2365882365 },
+  floz: { cat: 'volume', toBase: 0.0295735296 },
+  tsp: { cat: 'volume', toBase: 0.00492892159 },
+  tbsp: { cat: 'volume', toBase: 0.01478676478 },
+
+  // Area (base: m2)
+  m2: { cat: 'area', toBase: 1 },
+  km2: { cat: 'area', toBase: 1e6 },
+  cm2: { cat: 'area', toBase: 1e-4 },
+  ft2: { cat: 'area', toBase: 0.09290304 },
+  in2: { cat: 'area', toBase: 0.00064516 },
+  acre: { cat: 'area', toBase: 4046.8564224 },
+  ha: { cat: 'area', toBase: 10000 },
+
+  // Speed (base: mps = m/s)
+  mps: { cat: 'speed', toBase: 1 },
+  kph: { cat: 'speed', toBase: 1 / 3.6 },
+  mph: { cat: 'speed', toBase: 0.44704 },
+  knot: { cat: 'speed', toBase: 0.514444 },
+  fps: { cat: 'speed', toBase: 0.3048 },
+
+  // Temperature — handled separately
+  c: { cat: 'temperature' },
+  f: { cat: 'temperature' },
+  k: { cat: 'temperature' },
+};
+
+function convertTemperature(value, from, to) {
+  let celsius;
+  if (from === 'c') celsius = value;
+  else if (from === 'f') celsius = (value - 32) * 5 / 9;
+  else if (from === 'k') celsius = value - 273.15;
+  else throw new Error('Unknown temperature unit: ' + from);
+
+  if (to === 'c') return celsius;
+  if (to === 'f') return celsius * 9 / 5 + 32;
+  if (to === 'k') return celsius + 273.15;
+  throw new Error('Unknown temperature unit: ' + to);
+}
+
+function fmt(n) {
+  if (Math.abs(n) >= 1e9 || (Math.abs(n) < 0.0001 && n !== 0)) {
+    return n.toExponential(6).replace(/\.?0+e/, 'e');
+  }
+  const s = parseFloat(n.toPrecision(10)).toString();
+  return s;
+}
+
+window['ai_edge_gallery_get_result'] = async (data) => {
+  try {
+    const params = JSON.parse(data || '{}');
+    const value = parseFloat(params.value);
+    const from = String(params.from || '').trim().toLowerCase();
+    const to = String(params.to || '').trim().toLowerCase();
+
+    if (!isFinite(value)) throw new Error('"value" must be a number');
+    if (!from) throw new Error('"from" unit is required');
+    if (!to) throw new Error('"to" unit is required');
+
+    const fromDef = UNITS[from];
+    const toDef = UNITS[to];
+    if (!fromDef) throw new Error('Unknown unit: ' + from);
+    if (!toDef) throw new Error('Unknown unit: ' + to);
+    if (fromDef.cat !== toDef.cat) {
+      throw new Error('Cannot convert ' + from + ' (' + fromDef.cat + ') to ' + to + ' (' + toDef.cat + ')');
+    }
+
+    let result;
+    if (fromDef.cat === 'temperature') {
+      result = convertTemperature(value, from, to);
+    } else {
+      const base = value * fromDef.toBase;
+      result = base / toDef.toBase;
+    }
+
+    return JSON.stringify({ result: value + ' ' + from + ' = ' + fmt(result) + ' ' + to });
+  } catch (e) {
+    console.error(e);
+    return JSON.stringify({ error: 'Conversion failed: ' + e.message });
+  }
+};
+</script>
+</body>
+</html>

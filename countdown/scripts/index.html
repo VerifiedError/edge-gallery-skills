@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Countdown</title>
+</head>
+<body>
+<script>
+function fmtBreakdown(totalMs) {
+  const totalSec = Math.round(Math.abs(totalMs) / 1000);
+  const d = Math.floor(totalSec / 86400);
+  const h = Math.floor((totalSec % 86400) / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const parts = [];
+  if (d > 0) parts.push(d + (d === 1 ? ' day' : ' days'));
+  if (h > 0) parts.push(h + (h === 1 ? ' hour' : ' hours'));
+  if (m > 0 && d === 0) parts.push(m + (m === 1 ? ' minute' : ' minutes'));
+  if (parts.length === 0) parts.push('less than a minute');
+  return parts.join(', ');
+}
+
+window['ai_edge_gallery_get_result'] = async (data) => {
+  try {
+    const params = JSON.parse(data || '{}');
+    if (!params.date) throw new Error('"date" is required');
+
+    const target = new Date(params.date);
+    if (isNaN(target.getTime())) throw new Error('"date" is not a valid date: ' + params.date);
+
+    const now = new Date();
+    const diffMs = target - now;
+    const label = params.label ? ('"' + params.label + '"') : 'That date';
+    const breakdown = fmtBreakdown(diffMs);
+
+    let result;
+    if (diffMs > 0) {
+      const totalDays = Math.ceil(diffMs / 86400000);
+      result = label + ' is in ' + breakdown + ' (' + totalDays + (totalDays === 1 ? ' day' : ' days') + ').\n'
+        + 'Target: ' + target.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    } else if (diffMs < 0) {
+      const totalDays = Math.ceil(-diffMs / 86400000);
+      result = label + ' was ' + breakdown + ' ago (' + totalDays + (totalDays === 1 ? ' day' : ' days') + ').\n'
+        + 'Date: ' + target.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    } else {
+      result = label + ' is right now!';
+    }
+
+    return JSON.stringify({ result: result });
+  } catch (e) {
+    console.error(e);
+    return JSON.stringify({ error: 'Countdown failed: ' + e.message });
+  }
+};
+</script>
+</body>
+</html>
