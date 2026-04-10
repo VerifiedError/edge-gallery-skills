@@ -16,12 +16,18 @@
 
 // Try high-accuracy GPS via the WebView's geolocation API.
 // Resolves with {lat, lon, accuracy_m} or rejects with an Error.
+//
+// IMPORTANT: we wrap getCurrentPosition in Promise.race with a manual
+// setTimeout because the built-in `timeout` option only fires AFTER the
+// permission prompt is resolved (per W3C spec). In a hidden WebView where
+// the permission prompt cannot be shown, the native call hangs forever.
 function getGPS() {
-  return new Promise((resolve, reject) => {
+  const HARD_TIMEOUT_MS = 3000;
+  const native = new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) {
       return reject(new Error('Geolocation API not available in this WebView'));
     }
-    const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+    const opts = { enableHighAccuracy: true, timeout: HARD_TIMEOUT_MS, maximumAge: 60000 };
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve({
         lat: pos.coords.latitude,
@@ -32,6 +38,10 @@ function getGPS() {
       opts
     );
   });
+  const timeout = new Promise((_, reject) =>
+    setTimeout(() => reject(new Error('GPS hard timeout after ' + HARD_TIMEOUT_MS + 'ms')), HARD_TIMEOUT_MS)
+  );
+  return Promise.race([native, timeout]);
 }
 
 // IP-based fallback (city-level accuracy, no permission needed).

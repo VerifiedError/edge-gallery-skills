@@ -23,15 +23,20 @@ function cardinal(deg) {
   return dirs[Math.round(deg / 22.5) % 16];
 }
 
+// Race getCurrentPosition against a manual 3s timeout. The native `timeout`
+// option doesn't fire during the permission-prompt wait in hidden WebViews.
 function getGPS() {
-  return new Promise((resolve, reject) => {
+  const HARD = 3000;
+  const native = new Promise((resolve, reject) => {
     if (!('geolocation' in navigator)) return reject(new Error('no geolocation'));
     navigator.geolocation.getCurrentPosition(
       (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
       (e) => reject(new Error('GPS ' + e.code + ': ' + e.message)),
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: HARD, maximumAge: 60000 }
     );
   });
+  const to = new Promise((_, rej) => setTimeout(() => rej(new Error('GPS hard timeout')), HARD));
+  return Promise.race([native, to]);
 }
 
 async function getIPFallback() {
