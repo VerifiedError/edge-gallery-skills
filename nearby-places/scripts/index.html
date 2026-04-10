@@ -1,14 +1,12 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>nearby-places</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Nearby Places</title>
+</head>
 <body>
 <script>
-/*
- * nearby-places — get user location via geolocation, then query Overpass API
- * (OpenStreetMap) for places of a given type within a radius.
- */
-
-// Map friendly type → OSM tag {key, value}. Types not in this map are tried
-// against both amenity= and shop= keys.
 const TYPE_MAP = {
   cafe:        { key: 'amenity', value: 'cafe' },
   atm:         { key: 'amenity', value: 'atm' },
@@ -23,8 +21,6 @@ const TYPE_MAP = {
   park:        { key: 'leisure', value: 'park' },
 };
 
-// Race getCurrentPosition against a manual 3s timeout. The native `timeout`
-// option doesn't fire during the permission-prompt wait in hidden WebViews.
 function getGPS() {
   const HARD = 3000;
   const native = new Promise((resolve, reject) => {
@@ -42,10 +38,10 @@ function getGPS() {
 async function getIPFallback() {
   const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
   const j = await r.json();
+  if (!j.latitude || !j.longitude) throw new Error('ipapi.co no coords');
   return { lat: j.latitude, lon: j.longitude };
 }
 
-// Haversine in meters
 function distM(lat1, lon1, lat2, lon2) {
   const R = 6371000;
   const toRad = (d) => d * Math.PI / 180;
@@ -56,15 +52,6 @@ function distM(lat1, lon1, lat2, lon2) {
   return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-function buildQuery(tag, lat, lon, radius) {
-  // Search nodes, ways, and relations for the tag within radius
-  return '[out:json][timeout:20];('
-       + 'node[' + tag.key + '=' + tag.value + '](around:' + radius + ',' + lat + ',' + lon + ');'
-       + 'way[' + tag.key + '=' + tag.value + '](around:' + radius + ',' + lat + ',' + lon + ');'
-       + 'relation[' + tag.key + '=' + tag.value + '](around:' + radius + ',' + lat + ',' + lon + ');'
-       + ');out center tags 50;';
-}
-
 function formatAddress(tags) {
   const parts = [];
   if (tags['addr:housenumber'] && tags['addr:street']) {
@@ -73,47 +60,38 @@ function formatAddress(tags) {
     parts.push(tags['addr:street']);
   }
   if (tags['addr:city']) parts.push(tags['addr:city']);
-  if (tags['addr:state']) parts.push(tags['addr:state']);
   return parts.join(', ') || null;
 }
 
-window.ai_edge_gallery_get_result = async function (data, secret) {
-  const out = {
-    result: '', origin: null, type: null, count: 0, places: [], error: null,
-  };
+window['ai_edge_gallery_get_result'] = async (data) => {
   try {
-    const params = (data && typeof data === 'string') ? JSON.parse(data || '{}') : (data || {});
+    const params = JSON.parse(data || '{}');
     const typeName = (params.type || '').toLowerCase().trim();
     if (!typeName) throw new Error('type parameter is required');
     const radius = Math.min(Math.max(parseInt(params.radius_m || 1500, 10), 100), 5000);
-    const limit = Math.min(Math.max(parseInt(params.limit || 8, 10), 1), 25);
+    const limit = 8;
 
-    // Resolve tag
-    let tag = TYPE_MAP[typeName];
-    if (!tag) {
-      // Heuristic: try amenity=<typeName>, then shop=<typeName>
-      tag = { key: 'amenity', value: typeName };
-    }
+    const tag = TYPE_MAP[typeName] || { key: 'amenity', value: typeName };
 
-    // Get origin
     let origin;
     try {
       origin = await getGPS();
     } catch (e) {
       origin = await getIPFallback();
     }
-    out.origin = origin;
-    out.type = typeName;
 
-    // Query Overpass
-    const body = 'data=' + encodeURIComponent(buildQuery(tag, origin.lat, origin.lon, radius));
-    const resp = await fetch('https://overpass-api.de/api/interpreter', {
+    const query = '[out:json][timeout:20];('
+      + 'node[' + tag.key + '=' + tag.value + '](around:' + radius + ',' + origin.lat + ',' + origin.lon + ');'
+      + 'way[' + tag.key + '=' + tag.value + '](around:' + radius + ',' + origin.lat + ',' + origin.lon + ');'
+      + ');out center tags 50;';
+
+    const r = await fetch('https://overpass-api.de/api/interpreter', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: body,
+      body: 'data=' + encodeURIComponent(query),
     });
-    if (!resp.ok) throw new Error('Overpass returned ' + resp.status);
-    const j = await resp.json();
+    if (!r.ok) throw new Error('Overpass ' + r.status);
+    const j = await r.json();
 
     const places = [];
     for (const el of (j.elements || [])) {
@@ -121,41 +99,32 @@ window.ai_edge_gallery_get_result = async function (data, secret) {
       const lon = el.lon != null ? el.lon : (el.center ? el.center.lon : null);
       if (lat == null || lon == null) continue;
       const tags = el.tags || {};
-      const name = tags.name || tags['brand'] || '(unnamed)';
       places.push({
-        name: name,
-        distance_m: Math.round(distM(origin.lat, origin.lon, lat, lon)),
-        address: formatAddress(tags),
-        lat: lat,
-        lon: lon,
-        tags: { opening_hours: tags.opening_hours || null, phone: tags.phone || tags['contact:phone'] || null },
+        name: tags.name || tags['brand'] || '(unnamed)',
+        distM: Math.round(distM(origin.lat, origin.lon, lat, lon)),
+        addr: formatAddress(tags),
       });
     }
-
-    places.sort((a, b) => a.distance_m - b.distance_m);
+    places.sort((a, b) => a.distM - b.distM);
     const top = places.slice(0, limit);
-    out.count = top.length;
-    out.places = top;
 
     if (top.length === 0) {
-      out.result = 'No ' + typeName + ' found within ' + radius + ' m. Try a larger radius.';
-    } else {
-      const lines = ['Nearest ' + typeName + ' (within ' + radius + ' m):'];
-      top.forEach((p, i) => {
-        const distStr = p.distance_m < 1000
-          ? (p.distance_m + ' m')
-          : ((p.distance_m / 1000).toFixed(1) + ' km');
-        let line = (i + 1) + '. ' + p.name + ' — ' + distStr;
-        if (p.address) line += '\n   ' + p.address;
-        lines.push(line);
-      });
-      out.result = lines.join('\n');
+      return JSON.stringify({ result: 'No ' + typeName + ' found within ' + radius + ' m. Try a larger radius.' });
     }
+
+    const lines = ['Nearest ' + typeName + ' (within ' + radius + ' m):'];
+    top.forEach((p, i) => {
+      const distStr = p.distM < 1000 ? (p.distM + ' m') : ((p.distM / 1000).toFixed(1) + ' km');
+      let line = (i + 1) + '. ' + p.name + ' — ' + distStr;
+      if (p.addr) line += '\n   ' + p.addr;
+      lines.push(line);
+    });
+    return JSON.stringify({ result: lines.join('\n') });
   } catch (e) {
-    out.error = String(e && e.message ? e.message : e);
-    out.result = 'Could not find nearby places: ' + out.error;
+    console.error(e);
+    return JSON.stringify({ error: 'Could not find nearby places: ' + e.message });
   }
-  return JSON.stringify(out);
 };
 </script>
-</body></html>
+</body>
+</html>

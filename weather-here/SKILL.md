@@ -1,32 +1,22 @@
 ---
 name: weather-here
-description: Get current weather at the user's location — temperature, conditions, humidity, wind, and a short forecast for the rest of the day. Uses Open-Meteo (no API key). Temperatures returned in Fahrenheit by default. Use when the user asks "what's the weather", "is it raining", "how hot is it", "weather today".
-metadata:
-  homepage: https://github.com/addisonmikkelson/edge-gallery-skills
+description: Get the current weather at the user's location including temperature, conditions, humidity, wind, and today's forecast.
 ---
 
-# Instructions
+# Weather Here
 
-When the user asks about the weather, you MUST use the `run_js` tool with:
+This skill returns the current weather at the user's location using Open-Meteo. No API key required.
 
-- script name: index.html
-- data: A JSON string. Empty `{}` for Fahrenheit, or `{"units":"metric"}` for Celsius.
+## Examples
 
-## Result fields
+- "What's the weather?"
+- "Is it raining?"
+- "How hot is it outside?"
+- "What's the weather today in Celsius?"
 
-- `result` — pre-formatted summary you can show directly
-- `temperature` — current temp (°F or °C)
-- `feels_like` — apparent temperature
-- `conditions` — text description (e.g. "Partly cloudy")
-- `humidity_pct` — relative humidity
-- `wind_speed` — mph or km/h
-- `wind_dir` — cardinal direction (N, NE, E, etc.)
-- `precipitation` — current precip amount
-- `today_high`, `today_low` — daily forecast
-- `location_label` — nearest city, if known
-- `units` — `"imperial"` or `"metric"`
-- `error` — null on success
+## Instructions
 
-## Presenting the result
+Call the `run_js` tool with the following exact parameters:
 
-Show the summary plainly. Lead with temperature and conditions, then add humidity/wind as a second line.
+- data: A JSON string with optional fields
+  - units: either `imperial` (default, Fahrenheit and mph) or `metric` (Celsius and km/h).

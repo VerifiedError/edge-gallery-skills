@@ -1,16 +1,13 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>qr-wifi</title>
-<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Wi-Fi QR Code</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js"></script>
 </head>
 <body>
 <script>
-/*
- * qr-wifi — Build a WIFI: URI and render it as a PNG QR code.
- * Wi-Fi QR format (Android + iOS camera both support):
- *   WIFI:T:<WPA|WEP|nopass>;S:<ssid>;P:<password>;H:<true|false>;;
- * Special chars \ ; , " : must be escaped with backslash inside SSID/password.
- */
-
 function escapeWifi(s) {
   if (s == null) return '';
   return String(s).replace(/([\\;,":])/g, '\\$1');
@@ -25,7 +22,6 @@ function buildWifiURI(ssid, password, security, hidden) {
   return uri;
 }
 
-// Wait for the QRCode global to show up (script loads async)
 async function waitForQRCode(timeoutMs) {
   const start = Date.now();
   while (typeof QRCode === 'undefined' || typeof QRCode.toDataURL !== 'function') {
@@ -34,22 +30,16 @@ async function waitForQRCode(timeoutMs) {
   }
 }
 
-window.ai_edge_gallery_get_result = async function (data, secret) {
-  const out = { result: '', image: null, payload: null, error: null };
+window['ai_edge_gallery_get_result'] = async (data) => {
   try {
-    const params = (data && typeof data === 'string') ? JSON.parse(data || '{}') : (data || {});
-    const ssid = params.ssid;
-    if (!ssid) throw new Error('ssid is required');
-    const security = params.security || 'WPA';
-    const password = params.password || '';
-    const hidden = !!params.hidden;
+    const params = JSON.parse(data || '{}');
+    if (!params.ssid) throw new Error('ssid is required');
 
-    const payload = buildWifiURI(ssid, password, security, hidden);
-    out.payload = payload;
+    const payload = buildWifiURI(params.ssid, params.password || '', params.security || 'WPA', !!params.hidden);
 
     await waitForQRCode(5000);
 
-    // Generate a 512x512 PNG data URL
+    // Keep the FULL data URL (data:image/png;base64,...) — matches the built-in qr-code skill contract.
     const dataUrl = await QRCode.toDataURL(payload, {
       errorCorrectionLevel: 'M',
       margin: 2,
@@ -57,20 +47,16 @@ window.ai_edge_gallery_get_result = async function (data, secret) {
       color: { dark: '#000000', light: '#ffffff' },
     });
 
-    // Strip the "data:image/png;base64," prefix
-    const b64 = dataUrl.replace(/^data:image\/png;base64,/, '');
-    out.image = { base64: b64, mime: 'image/png' };
-
-    const secLabel = security.toLowerCase() === 'nopass' ? 'open' : security.toUpperCase();
-    out.result = 'Wi-Fi QR code generated for "' + ssid + '" (' + secLabel + '). '
-               + 'Scan with your phone camera to join. '
-               + 'Reminder: this QR contains the password in plain text — '
-               + 'don\'t share it publicly.';
+    const secLabel = (params.security || 'WPA').toUpperCase() === 'NOPASS' ? 'open' : (params.security || 'WPA').toUpperCase();
+    return JSON.stringify({
+      result: 'Wi-Fi QR for "' + params.ssid + '" (' + secLabel + '). Scan with your phone camera to join. Reminder: this QR contains the password in plain text — don\'t share it publicly.',
+      image: { base64: dataUrl },
+    });
   } catch (e) {
-    out.error = String(e && e.message ? e.message : e);
-    out.result = 'Could not generate QR: ' + out.error;
+    console.error(e);
+    return JSON.stringify({ error: 'Could not generate QR: ' + e.message });
   }
-  return JSON.stringify(out);
 };
 </script>
-</body></html>
+</body>
+</html>

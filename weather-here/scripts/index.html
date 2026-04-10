@@ -1,8 +1,12 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>weather-here</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weather Here</title>
+</head>
 <body>
 <script>
-// WMO weather code → short description
 const WMO = {
   0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
   45: 'Fog', 48: 'Depositing rime fog',
@@ -23,8 +27,6 @@ function cardinal(deg) {
   return dirs[Math.round(deg / 22.5) % 16];
 }
 
-// Race getCurrentPosition against a manual 3s timeout. The native `timeout`
-// option doesn't fire during the permission-prompt wait in hidden WebViews.
 function getGPS() {
   const HARD = 3000;
   const native = new Promise((resolve, reject) => {
@@ -57,16 +59,10 @@ async function reverseGeocode(lat, lon) {
   } catch (e) { return null; }
 }
 
-window.ai_edge_gallery_get_result = async function (data, secret) {
-  const out = {
-    result: '', temperature: null, feels_like: null, conditions: null,
-    humidity_pct: null, wind_speed: null, wind_dir: null, precipitation: null,
-    today_high: null, today_low: null, location_label: null, units: 'imperial', error: null,
-  };
+window['ai_edge_gallery_get_result'] = async (data) => {
   try {
-    const params = (data && typeof data === 'string') ? JSON.parse(data || '{}') : (data || {});
+    const params = JSON.parse(data || '{}');
     const metric = (params.units || '').toLowerCase() === 'metric';
-    out.units = metric ? 'metric' : 'imperial';
 
     let origin;
     let labelFromIP = null;
@@ -85,54 +81,39 @@ window.ai_edge_gallery_get_result = async function (data, secret) {
 
     const url = 'https://api.open-meteo.com/v1/forecast'
       + '?latitude=' + origin.lat + '&longitude=' + origin.lon
-      + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
+      + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m'
       + '&daily=temperature_2m_max,temperature_2m_min'
       + '&temperature_unit=' + tUnit
       + '&wind_speed_unit=' + wUnit
-      + '&precipitation_unit=' + (metric ? 'mm' : 'inch')
       + '&timezone=auto';
 
-    const resp = await fetch(url);
-    if (!resp.ok) throw new Error('Open-Meteo ' + resp.status);
-    const j = await resp.json();
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('Open-Meteo ' + r.status);
+    const j = await r.json();
 
     const c = j.current || {};
-    out.temperature  = c.temperature_2m;
-    out.feels_like   = c.apparent_temperature;
-    out.conditions   = WMO[c.weather_code] || ('Code ' + c.weather_code);
-    out.humidity_pct = c.relative_humidity_2m;
-    out.wind_speed   = c.wind_speed_10m;
-    out.wind_dir     = cardinal(c.wind_direction_10m);
-    out.precipitation = c.precipitation;
-    if (j.daily && j.daily.temperature_2m_max) {
-      out.today_high = j.daily.temperature_2m_max[0];
-      out.today_low  = j.daily.temperature_2m_min[0];
-    }
-
-    out.location_label = labelFromIP || await reverseGeocode(origin.lat, origin.lon);
+    const conditions = WMO[c.weather_code] || ('Code ' + c.weather_code);
+    const wind_dir = cardinal(c.wind_direction_10m);
+    const label = labelFromIP || await reverseGeocode(origin.lat, origin.lon);
 
     const lines = [];
-    lines.push((out.location_label ? out.location_label + ': ' : '')
-      + Math.round(out.temperature) + tSym + ' — ' + out.conditions);
-    if (out.feels_like != null) {
-      lines.push('Feels like ' + Math.round(out.feels_like) + tSym
-        + ', humidity ' + out.humidity_pct + '%');
+    lines.push((label ? label + ': ' : '') + Math.round(c.temperature_2m) + tSym + ' — ' + conditions);
+    if (c.apparent_temperature != null) {
+      lines.push('Feels like ' + Math.round(c.apparent_temperature) + tSym + ', humidity ' + c.relative_humidity_2m + '%');
     }
-    if (out.wind_speed != null) {
-      lines.push('Wind ' + Math.round(out.wind_speed) + wSym
-        + (out.wind_dir ? ' from ' + out.wind_dir : ''));
+    if (c.wind_speed_10m != null) {
+      lines.push('Wind ' + Math.round(c.wind_speed_10m) + wSym + (wind_dir ? ' from ' + wind_dir : ''));
     }
-    if (out.today_high != null && out.today_low != null) {
-      lines.push('Today: '
-        + Math.round(out.today_low) + tSym + ' / '
-        + Math.round(out.today_high) + tSym);
+    if (j.daily && j.daily.temperature_2m_max) {
+      lines.push('Today: ' + Math.round(j.daily.temperature_2m_min[0]) + tSym + ' / ' + Math.round(j.daily.temperature_2m_max[0]) + tSym);
     }
-    out.result = lines.join('\n');
+
+    return JSON.stringify({ result: lines.join('\n') });
   } catch (e) {
-    out.error = String(e && e.message ? e.message : e);
-    out.result = 'Could not fetch weather: ' + out.error;
+    console.error(e);
+    return JSON.stringify({ error: 'Could not fetch weather: ' + e.message });
   }
-  return JSON.stringify(out);
 };
 </script>
-</body></html>
+</body>
+</html>

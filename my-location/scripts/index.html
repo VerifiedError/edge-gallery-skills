@@ -1,153 +1,82 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>my-location</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>My Location</title>
 </head>
 <body>
 <script>
-/*
- * my-location — Edge Gallery skill
- * Returns the user's current location, with GPS preferred and IP fallback.
- *
- * Contract (per Edge Gallery skill docs):
- *   window.ai_edge_gallery_get_result = async (data, secret) => JSON string
- */
-
-// Try high-accuracy GPS via the WebView's geolocation API.
-// Resolves with {lat, lon, accuracy_m} or rejects with an Error.
-//
-// IMPORTANT: we wrap getCurrentPosition in Promise.race with a manual
-// setTimeout because the built-in `timeout` option only fires AFTER the
-// permission prompt is resolved (per W3C spec). In a hidden WebView where
-// the permission prompt cannot be shown, the native call hangs forever.
+// Race getCurrentPosition against a manual 3s timeout. The native `timeout`
+// option only fires AFTER the permission prompt resolves (W3C spec), so in
+// a hidden WebView it can hang forever.
 function getGPS() {
-  const HARD_TIMEOUT_MS = 3000;
+  const HARD = 3000;
   const native = new Promise((resolve, reject) => {
-    if (!('geolocation' in navigator)) {
-      return reject(new Error('Geolocation API not available in this WebView'));
-    }
-    const opts = { enableHighAccuracy: true, timeout: HARD_TIMEOUT_MS, maximumAge: 60000 };
+    if (!('geolocation' in navigator)) return reject(new Error('no geolocation'));
     navigator.geolocation.getCurrentPosition(
-      (pos) => resolve({
-        lat: pos.coords.latitude,
-        lon: pos.coords.longitude,
-        accuracy_m: Math.round(pos.coords.accuracy),
-      }),
-      (err) => reject(new Error('GPS ' + err.code + ': ' + err.message)),
-      opts
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude, acc: Math.round(p.coords.accuracy) }),
+      (e) => reject(new Error('GPS ' + e.code + ': ' + e.message)),
+      { enableHighAccuracy: true, timeout: HARD, maximumAge: 60000 }
     );
   });
-  const timeout = new Promise((_, reject) =>
-    setTimeout(() => reject(new Error('GPS hard timeout after ' + HARD_TIMEOUT_MS + 'ms')), HARD_TIMEOUT_MS)
-  );
-  return Promise.race([native, timeout]);
+  const to = new Promise((_, rej) => setTimeout(() => rej(new Error('GPS hard timeout')), HARD));
+  return Promise.race([native, to]);
 }
 
-// IP-based fallback (city-level accuracy, no permission needed).
-async function getIP() {
+async function getIPFallback() {
   const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
-  if (!r.ok) throw new Error('ipapi.co returned ' + r.status);
+  if (!r.ok) throw new Error('ipapi.co ' + r.status);
   const j = await r.json();
-  if (!j.latitude || !j.longitude) throw new Error('ipapi.co missing coords');
-  return {
-    lat: j.latitude,
-    lon: j.longitude,
-    city: j.city,
-    region: j.region,
-    country: j.country_name,
-  };
+  if (!j.latitude || !j.longitude) throw new Error('ipapi.co returned no coords');
+  return { lat: j.latitude, lon: j.longitude, city: j.city, region: j.region, country: j.country_name };
 }
 
-// Reverse-geocode lat/lon to a street address via Nominatim (OSM).
-// Returns {address, city, region, country} — all fields best-effort.
 async function reverseGeocode(lat, lon) {
-  const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2'
-            + '&lat=' + encodeURIComponent(lat)
-            + '&lon=' + encodeURIComponent(lon)
-            + '&zoom=18&addressdetails=1';
   try {
-    const r = await fetch(url, {
-      headers: { 'Accept': 'application/json' },
-      cache: 'no-store',
-    });
-    if (!r.ok) return {};
+    const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=18&addressdetails=1&lat=' + lat + '&lon=' + lon;
+    const r = await fetch(url);
+    if (!r.ok) return null;
     const j = await r.json();
-    const a = j.address || {};
-    return {
-      address: j.display_name || null,
-      city: a.city || a.town || a.village || a.hamlet || null,
-      region: a.state || a.region || null,
-      country: a.country || null,
-    };
+    return j.display_name || null;
   } catch (e) {
-    return {};
+    return null;
   }
 }
 
-window.ai_edge_gallery_get_result = async function (data, secret) {
-  const out = {
-    result: '',
-    source: null,
-    latitude: null,
-    longitude: null,
-    accuracy_m: null,
-    address: null,
-    city: null,
-    region: null,
-    country: null,
-    error: null,
-  };
-
+window['ai_edge_gallery_get_result'] = async (data) => {
   try {
-    let source = 'gps';
     let loc;
+    let source = 'gps';
     try {
       loc = await getGPS();
-    } catch (gpsErr) {
-      // Fall back to IP-based lookup
+    } catch (e) {
       source = 'ip';
-      loc = await getIP();
+      loc = await getIPFallback();
     }
 
-    out.source = source;
-    out.latitude = loc.lat;
-    out.longitude = loc.lon;
-    if (loc.accuracy_m != null) out.accuracy_m = loc.accuracy_m;
-
-    // Reverse geocode (non-fatal if it fails)
-    const geo = await reverseGeocode(loc.lat, loc.lon);
-    out.address = geo.address || null;
-    out.city    = geo.city    || loc.city    || null;
-    out.region  = geo.region  || loc.region  || null;
-    out.country = geo.country || loc.country || null;
-
-    // Build human-readable summary for the LLM to show directly
     const lines = [];
     if (source === 'gps') {
       lines.push('Current location (GPS):');
     } else {
-      lines.push('Approximate location (IP-based, city-level):');
+      lines.push('Approximate location (IP-based):');
     }
-    if (out.address) {
-      lines.push(out.address);
-    } else {
-      const parts = [out.city, out.region, out.country].filter(Boolean);
-      if (parts.length) lines.push(parts.join(', '));
+    const address = await reverseGeocode(loc.lat, loc.lon);
+    if (address) {
+      lines.push(address);
+    } else if (loc.city || loc.region || loc.country) {
+      lines.push([loc.city, loc.region, loc.country].filter(Boolean).join(', '));
     }
-    lines.push('Coordinates: ' + out.latitude.toFixed(6) + ', ' + out.longitude.toFixed(6));
-    if (out.accuracy_m != null) {
-      lines.push('Accuracy: ~' + out.accuracy_m + ' m');
+    lines.push('Coordinates: ' + loc.lat.toFixed(6) + ', ' + loc.lon.toFixed(6));
+    if (loc.acc != null) {
+      lines.push('Accuracy: ~' + loc.acc + ' m');
     }
-    out.result = lines.join('\n');
-  } catch (e) {
-    out.error = String(e && e.message ? e.message : e);
-    out.result = 'Could not determine location: ' + out.error
-               + '\nMake sure the AI Edge Gallery app has Location permission'
-               + ' enabled in Android Settings.';
-  }
 
-  return JSON.stringify(out);
+    return JSON.stringify({ result: lines.join('\n') });
+  } catch (e) {
+    console.error(e);
+    return JSON.stringify({ error: 'Could not determine location: ' + e.message });
+  }
 };
 </script>
 </body>

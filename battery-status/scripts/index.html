@@ -1,5 +1,10 @@
 <!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>battery-status</title></head>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Battery Status</title>
+</head>
 <body>
 <script>
 function fmtDuration(seconds) {
@@ -11,30 +16,15 @@ function fmtDuration(seconds) {
   return rm ? (h + 'h ' + rm + 'm') : (h + 'h');
 }
 
-window.ai_edge_gallery_get_result = async function (data, secret) {
-  const out = {
-    result: '', level_pct: null, charging: null,
-    charging_time_min: null, discharging_time_min: null, error: null,
-  };
+window['ai_edge_gallery_get_result'] = async (data) => {
   try {
     if (typeof navigator.getBattery !== 'function') {
       throw new Error('Battery Status API not available in this WebView');
     }
     const b = await navigator.getBattery();
     const pct = Math.round((b.level || 0) * 100);
-    out.level_pct = pct;
-    out.charging  = !!b.charging;
-
-    // chargingTime / dischargingTime are in seconds; Infinity when unknown
-    if (isFinite(b.chargingTime) && b.chargingTime > 0) {
-      out.charging_time_min = Math.round(b.chargingTime / 60);
-    }
-    if (isFinite(b.dischargingTime) && b.dischargingTime > 0) {
-      out.discharging_time_min = Math.round(b.dischargingTime / 60);
-    }
-
     const parts = ['Battery ' + pct + '%'];
-    if (out.charging) {
+    if (b.charging) {
       parts.push('charging');
       const t = fmtDuration(b.chargingTime);
       if (t) parts.push('~' + t + ' until full');
@@ -43,12 +33,12 @@ window.ai_edge_gallery_get_result = async function (data, secret) {
       const t = fmtDuration(b.dischargingTime);
       if (t) parts.push('~' + t + ' remaining');
     }
-    out.result = parts.join(', ');
+    return JSON.stringify({ result: parts.join(', ') });
   } catch (e) {
-    out.error = String(e && e.message ? e.message : e);
-    out.result = 'Could not read battery: ' + out.error;
+    console.error(e);
+    return JSON.stringify({ error: 'Could not read battery: ' + e.message });
   }
-  return JSON.stringify(out);
 };
 </script>
-</body></html>
+</body>
+</html>

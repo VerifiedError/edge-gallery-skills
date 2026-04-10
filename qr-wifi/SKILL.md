@@ -1,32 +1,26 @@
 ---
 name: qr-wifi
-description: Generate a QR code that, when scanned by a phone camera, auto-joins a Wi-Fi network. Use when the user says "make a QR code for my Wi-Fi", "share my Wi-Fi", "QR code to join the network", etc.
-metadata:
-  homepage: https://github.com/addisonmikkelson/edge-gallery-skills
+description: Generate a QR code that auto-joins a Wi-Fi network when scanned.
 ---
 
-# Instructions
+# Wi-Fi QR Code
 
-When the user wants a Wi-Fi QR code, you MUST use the `run_js` tool with:
+This skill generates a QR code that a phone camera can scan to automatically join a Wi-Fi network.
 
-- script name: index.html
-- data: A JSON string with:
-  - `ssid` (required) — the network name
-  - `password` (optional) — network password; omit for open networks
-  - `security` (optional) — `"WPA"` (default), `"WEP"`, or `"nopass"`
-  - `hidden` (optional) — `true` if the SSID is hidden; default `false`
+## Examples
 
-If the user hasn't given you a password, ask for it before calling the tool (unless they say it's an open network).
+- "Make a QR code for my Wi-Fi, SSID HomeNet, password hunter2"
+- "Generate a Wi-Fi QR for the network 'Coffee Shop' with password latte123"
+- "Create an open network QR code for 'Lobby'"
 
-## Result fields
+## Instructions
 
-- `result` — a short success message you can show
-- `image` — `{ base64: "<PNG base64>", mime: "image/png" }` — the QR code
-- `payload` — the raw Wi-Fi string encoded in the QR (for debugging)
-- `error` — null on success
+Call the `run_js` tool with the following exact parameters:
 
-## Presenting the result
+- data: A JSON string with the following fields
+  - ssid: the network name. Required.
+  - password: the network password. Required unless security is `nopass`.
+  - security: `WPA` (default), `WEP`, or `nopass` for open networks.
+  - hidden: `true` if the SSID is hidden. Default `false`.
 
-The `image` field is rendered directly by Edge Gallery — you don't need to describe the QR visually. Just confirm it was generated and tell the user to scan it with their camera app.
-
-**Security note:** A Wi-Fi QR code embeds the password in plain text. Warn the user not to share the QR publicly if the network is sensitive.
+If the user hasn't given you a password, ask for it before calling the tool.
