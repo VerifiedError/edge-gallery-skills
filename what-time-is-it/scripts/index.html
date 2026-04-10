@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>what-time-is-it</title></head>
+<body>
+<script>
+window.ai_edge_gallery_get_result = async function (data, secret) {
+  const out = {
+    result: '', iso: null, local: null, day_of_week: null,
+    date: null, time: null, timezone: null, offset: null,
+    is_dst: null, error: null,
+  };
+  try {
+    const params = (data && typeof data === 'string') ? JSON.parse(data || '{}') : (data || {});
+    const tz = params.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const now = new Date();
+
+    // Build parts in the target timezone
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+      hour: 'numeric', minute: '2-digit', hour12: true,
+    });
+    const localFriendly = fmt.format(now);
+
+    const dateFmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit',
+    }).format(now); // YYYY-MM-DD
+
+    const timeFmt = new Intl.DateTimeFormat('en-GB', {
+      timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    }).format(now); // HH:MM:SS
+
+    const dow = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now);
+
+    // Compute UTC offset for the target timezone
+    const tzShort = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, timeZoneName: 'shortOffset',
+    }).formatToParts(now).find(p => p.type === 'timeZoneName');
+    const offset = tzShort ? tzShort.value.replace('GMT', 'UTC') : null;
+
+    // DST detection: compare Jan vs Jul offset in this tz
+    const jan = new Date(now.getFullYear(), 0, 1);
+    const jul = new Date(now.getFullYear(), 6, 1);
+    const getOffMin = (d) => {
+      const s = new Intl.DateTimeFormat('en-US', {
+        timeZone: tz, timeZoneName: 'shortOffset',
+      }).formatToParts(d).find(p => p.type === 'timeZoneName').value;
+      const m = s.match(/([+-])(\d{1,2})(?::?(\d{2}))?/);
+      if (!m) return 0;
+      const sign = m[1] === '-' ? -1 : 1;
+      return sign * (parseInt(m[2], 10) * 60 + parseInt(m[3] || '0', 10));
+    };
+    const standardOff = Math.max(getOffMin(jan), getOffMin(jul));
+    const currentOff = getOffMin(now);
+    const isDst = currentOff !== standardOff;
+
+    out.iso = now.toISOString();
+    out.local = localFriendly;
+    out.day_of_week = dow;
+    out.date = dateFmt;
+    out.time = timeFmt;
+    out.timezone = tz;
+    out.offset = offset;
+    out.is_dst = isDst;
+
+    out.result = localFriendly + '\n'
+               + 'Timezone: ' + tz + (offset ? ' (' + offset + ')' : '')
+               + (isDst ? ' — DST in effect' : '');
+  } catch (e) {
+    out.error = String(e && e.message ? e.message : e);
+    out.result = 'Could not determine time: ' + out.error;
+  }
+  return JSON.stringify(out);
+};
+</script>
+</body></html>

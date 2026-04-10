@@ -17,7 +17,14 @@ Custom skills for the [Google AI Edge Gallery](https://github.com/google-ai-edge
 
 | Skill | Description | Import URL |
 |---|---|---|
-| `my-location` | Get current GPS coordinates + street address | `https://<user>.github.io/edge-gallery-skills/my-location/` |
+| `my-location` | Current GPS coordinates + reverse-geocoded street address | `.../my-location/` |
+| `what-time-is-it` | Current local time, date, day of week, optional timezone conversion | `.../what-time-is-it/` |
+| `battery-status` | Phone battery level, charging state, time to full/empty | `.../battery-status/` |
+| `nearby-places` | Coffee, ATMs, gas, food, etc. near you (OpenStreetMap, no API key) | `.../nearby-places/` |
+| `weather-here` | Current weather at your location (Open-Meteo, no API key) | `.../weather-here/` |
+| `qr-wifi` | Generate a QR code to auto-join a Wi-Fi network | `.../qr-wifi/` |
+
+Full import URL = `https://<your-username>.github.io/edge-gallery-skills/<skill-name>/`
 
 ## Publishing (one-time setup)
 

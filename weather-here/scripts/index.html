@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>weather-here</title></head>
+<body>
+<script>
+// WMO weather code → short description
+const WMO = {
+  0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+  45: 'Fog', 48: 'Depositing rime fog',
+  51: 'Light drizzle', 53: 'Moderate drizzle', 55: 'Dense drizzle',
+  56: 'Light freezing drizzle', 57: 'Dense freezing drizzle',
+  61: 'Light rain', 63: 'Moderate rain', 65: 'Heavy rain',
+  66: 'Light freezing rain', 67: 'Heavy freezing rain',
+  71: 'Light snow', 73: 'Moderate snow', 75: 'Heavy snow',
+  77: 'Snow grains',
+  80: 'Light rain showers', 81: 'Moderate rain showers', 82: 'Violent rain showers',
+  85: 'Light snow showers', 86: 'Heavy snow showers',
+  95: 'Thunderstorm', 96: 'Thunderstorm w/ light hail', 99: 'Thunderstorm w/ heavy hail',
+};
+
+function cardinal(deg) {
+  if (deg == null) return null;
+  const dirs = ['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  return dirs[Math.round(deg / 22.5) % 16];
+}
+
+function getGPS() {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) return reject(new Error('no geolocation'));
+    navigator.geolocation.getCurrentPosition(
+      (p) => resolve({ lat: p.coords.latitude, lon: p.coords.longitude }),
+      (e) => reject(new Error('GPS ' + e.code + ': ' + e.message)),
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+    );
+  });
+}
+
+async function getIPFallback() {
+  const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+  const j = await r.json();
+  return { lat: j.latitude, lon: j.longitude, city: j.city, region: j.region };
+}
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const r = await fetch('https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=10&lat=' + lat + '&lon=' + lon);
+    if (!r.ok) return null;
+    const j = await r.json();
+    const a = j.address || {};
+    const city = a.city || a.town || a.village || a.hamlet || null;
+    const region = a.state || null;
+    return [city, region].filter(Boolean).join(', ') || null;
+  } catch (e) { return null; }
+}
+
+window.ai_edge_gallery_get_result = async function (data, secret) {
+  const out = {
+    result: '', temperature: null, feels_like: null, conditions: null,
+    humidity_pct: null, wind_speed: null, wind_dir: null, precipitation: null,
+    today_high: null, today_low: null, location_label: null, units: 'imperial', error: null,
+  };
+  try {
+    const params = (data && typeof data === 'string') ? JSON.parse(data || '{}') : (data || {});
+    const metric = (params.units || '').toLowerCase() === 'metric';
+    out.units = metric ? 'metric' : 'imperial';
+
+    let origin;
+    let labelFromIP = null;
+    try {
+      origin = await getGPS();
+    } catch (e) {
+      const ip = await getIPFallback();
+      origin = { lat: ip.lat, lon: ip.lon };
+      labelFromIP = [ip.city, ip.region].filter(Boolean).join(', ') || null;
+    }
+
+    const tUnit = metric ? 'celsius' : 'fahrenheit';
+    const wUnit = metric ? 'kmh' : 'mph';
+    const tSym = metric ? '°C' : '°F';
+    const wSym = metric ? ' km/h' : ' mph';
+
+    const url = 'https://api.open-meteo.com/v1/forecast'
+      + '?latitude=' + origin.lat + '&longitude=' + origin.lon
+      + '&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,wind_direction_10m'
+      + '&daily=temperature_2m_max,temperature_2m_min'
+      + '&temperature_unit=' + tUnit
+      + '&wind_speed_unit=' + wUnit
+      + '&precipitation_unit=' + (metric ? 'mm' : 'inch')
+      + '&timezone=auto';
+
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error('Open-Meteo ' + resp.status);
+    const j = await resp.json();
+
+    const c = j.current || {};
+    out.temperature  = c.temperature_2m;
+    out.feels_like   = c.apparent_temperature;
+    out.conditions   = WMO[c.weather_code] || ('Code ' + c.weather_code);
+    out.humidity_pct = c.relative_humidity_2m;
+    out.wind_speed   = c.wind_speed_10m;
+    out.wind_dir     = cardinal(c.wind_direction_10m);
+    out.precipitation = c.precipitation;
+    if (j.daily && j.daily.temperature_2m_max) {
+      out.today_high = j.daily.temperature_2m_max[0];
+      out.today_low  = j.daily.temperature_2m_min[0];
+    }
+
+    out.location_label = labelFromIP || await reverseGeocode(origin.lat, origin.lon);
+
+    const lines = [];
+    lines.push((out.location_label ? out.location_label + ': ' : '')
+      + Math.round(out.temperature) + tSym + ' — ' + out.conditions);
+    if (out.feels_like != null) {
+      lines.push('Feels like ' + Math.round(out.feels_like) + tSym
+        + ', humidity ' + out.humidity_pct + '%');
+    }
+    if (out.wind_speed != null) {
+      lines.push('Wind ' + Math.round(out.wind_speed) + wSym
+        + (out.wind_dir ? ' from ' + out.wind_dir : ''));
+    }
+    if (out.today_high != null && out.today_low != null) {
+      lines.push('Today: '
+        + Math.round(out.today_low) + tSym + ' / '
+        + Math.round(out.today_high) + tSym);
+    }
+    out.result = lines.join('\n');
+  } catch (e) {
+    out.error = String(e && e.message ? e.message : e);
+    out.result = 'Could not fetch weather: ' + out.error;
+  }
+  return JSON.stringify(out);
+};
+</script>
+</body></html>

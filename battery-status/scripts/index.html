@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>battery-status</title></head>
+<body>
+<script>
+function fmtDuration(seconds) {
+  if (seconds == null || !isFinite(seconds) || seconds <= 0) return null;
+  const m = Math.round(seconds / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60);
+  const rm = m % 60;
+  return rm ? (h + 'h ' + rm + 'm') : (h + 'h');
+}
+
+window.ai_edge_gallery_get_result = async function (data, secret) {
+  const out = {
+    result: '', level_pct: null, charging: null,
+    charging_time_min: null, discharging_time_min: null, error: null,
+  };
+  try {
+    if (typeof navigator.getBattery !== 'function') {
+      throw new Error('Battery Status API not available in this WebView');
+    }
+    const b = await navigator.getBattery();
+    const pct = Math.round((b.level || 0) * 100);
+    out.level_pct = pct;
+    out.charging  = !!b.charging;
+
+    // chargingTime / dischargingTime are in seconds; Infinity when unknown
+    if (isFinite(b.chargingTime) && b.chargingTime > 0) {
+      out.charging_time_min = Math.round(b.chargingTime / 60);
+    }
+    if (isFinite(b.dischargingTime) && b.dischargingTime > 0) {
+      out.discharging_time_min = Math.round(b.dischargingTime / 60);
+    }
+
+    const parts = ['Battery ' + pct + '%'];
+    if (out.charging) {
+      parts.push('charging');
+      const t = fmtDuration(b.chargingTime);
+      if (t) parts.push('~' + t + ' until full');
+    } else {
+      parts.push('not charging');
+      const t = fmtDuration(b.dischargingTime);
+      if (t) parts.push('~' + t + ' remaining');
+    }
+    out.result = parts.join(', ');
+  } catch (e) {
+    out.error = String(e && e.message ? e.message : e);
+    out.result = 'Could not read battery: ' + out.error;
+  }
+  return JSON.stringify(out);
+};
+</script>
+</body></html>
