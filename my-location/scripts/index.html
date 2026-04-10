@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>my-location</title>
+</head>
+<body>
+<script>
+/*
+ * my-location — Edge Gallery skill
+ * Returns the user's current location, with GPS preferred and IP fallback.
+ *
+ * Contract (per Edge Gallery skill docs):
+ *   window.ai_edge_gallery_get_result = async (data, secret) => JSON string
+ */
+
+// Try high-accuracy GPS via the WebView's geolocation API.
+// Resolves with {lat, lon, accuracy_m} or rejects with an Error.
+function getGPS() {
+  return new Promise((resolve, reject) => {
+    if (!('geolocation' in navigator)) {
+      return reject(new Error('Geolocation API not available in this WebView'));
+    }
+    const opts = { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 };
+    navigator.geolocation.getCurrentPosition(
+      (pos) => resolve({
+        lat: pos.coords.latitude,
+        lon: pos.coords.longitude,
+        accuracy_m: Math.round(pos.coords.accuracy),
+      }),
+      (err) => reject(new Error('GPS ' + err.code + ': ' + err.message)),
+      opts
+    );
+  });
+}
+
+// IP-based fallback (city-level accuracy, no permission needed).
+async function getIP() {
+  const r = await fetch('https://ipapi.co/json/', { cache: 'no-store' });
+  if (!r.ok) throw new Error('ipapi.co returned ' + r.status);
+  const j = await r.json();
+  if (!j.latitude || !j.longitude) throw new Error('ipapi.co missing coords');
+  return {
+    lat: j.latitude,
+    lon: j.longitude,
+    city: j.city,
+    region: j.region,
+    country: j.country_name,
+  };
+}
+
+// Reverse-geocode lat/lon to a street address via Nominatim (OSM).
+// Returns {address, city, region, country} — all fields best-effort.
+async function reverseGeocode(lat, lon) {
+  const url = 'https://nominatim.openstreetmap.org/reverse?format=jsonv2'
+            + '&lat=' + encodeURIComponent(lat)
+            + '&lon=' + encodeURIComponent(lon)
+            + '&zoom=18&addressdetails=1';
+  try {
+    const r = await fetch(url, {
+      headers: { 'Accept': 'application/json' },
+      cache: 'no-store',
+    });
+    if (!r.ok) return {};
+    const j = await r.json();
+    const a = j.address || {};
+    return {
+      address: j.display_name || null,
+      city: a.city || a.town || a.village || a.hamlet || null,
+      region: a.state || a.region || null,
+      country: a.country || null,
+    };
+  } catch (e) {
+    return {};
+  }
+}
+
+window.ai_edge_gallery_get_result = async function (data, secret) {
+  const out = {
+    result: '',
+    source: null,
+    latitude: null,
+    longitude: null,
+    accuracy_m: null,
+    address: null,
+    city: null,
+    region: null,
+    country: null,
+    error: null,
+  };
+
+  try {
+    let source = 'gps';
+    let loc;
+    try {
+      loc = await getGPS();
+    } catch (gpsErr) {
+      // Fall back to IP-based lookup
+      source = 'ip';
+      loc = await getIP();
+    }
+
+    out.source = source;
+    out.latitude = loc.lat;
+    out.longitude = loc.lon;
+    if (loc.accuracy_m != null) out.accuracy_m = loc.accuracy_m;
+
+    // Reverse geocode (non-fatal if it fails)
+    const geo = await reverseGeocode(loc.lat, loc.lon);
+    out.address = geo.address || null;
+    out.city    = geo.city    || loc.city    || null;
+    out.region  = geo.region  || loc.region  || null;
+    out.country = geo.country || loc.country || null;
+
+    // Build human-readable summary for the LLM to show directly
+    const lines = [];
+    if (source === 'gps') {
+      lines.push('Current location (GPS):');
+    } else {
+      lines.push('Approximate location (IP-based, city-level):');
+    }
+    if (out.address) {
+      lines.push(out.address);
+    } else {
+      const parts = [out.city, out.region, out.country].filter(Boolean);
+      if (parts.length) lines.push(parts.join(', '));
+    }
+    lines.push('Coordinates: ' + out.latitude.toFixed(6) + ', ' + out.longitude.toFixed(6));
+    if (out.accuracy_m != null) {
+      lines.push('Accuracy: ~' + out.accuracy_m + ' m');
+    }
+    out.result = lines.join('\n');
+  } catch (e) {
+    out.error = String(e && e.message ? e.message : e);
+    out.result = 'Could not determine location: ' + out.error
+               + '\nMake sure the AI Edge Gallery app has Location permission'
+               + ' enabled in Android Settings.';
+  }
+
+  return JSON.stringify(out);
+};
+</script>
+</body>
+</html>
